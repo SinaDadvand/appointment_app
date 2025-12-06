@@ -1,0 +1,187 @@
+{% extends "base.html" %}
+
+{% block title %}Appointment Details - {{ embassy_name }}{% endblock %}
+
+{% block hero %}
+<div class="hero-section">
+    <div class="container">
+        <h1 class="display-5 fw-bold">
+            <i class="bi bi-file-text"></i> Appointment Details
+        </h1>
+        <p class="lead">Confirmation and appointment information</p>
+    </div>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-lg-8">
+        <!-- Success Message -->
+        <div class="alert alert-success alert-dismissible fade show" role="alert">
+            <h5 class="alert-heading">
+                <i class="bi bi-check-circle-fill"></i> Appointment Confirmed!
+            </h5>
+            <p>Your appointment has been successfully scheduled. Please save this confirmation for your records.</p>
+            <hr>
+            <p class="mb-0">
+                <strong>Confirmation ID:</strong> <code>{{ appointment.id }}</code>
+            </p>
+        </div>
+
+        <!-- Appointment Details Card -->
+        <div class="card mb-4">
+            <div class="card-header bg-white">
+                <h4 class="mb-0">
+                    <i class="bi bi-person-badge"></i> Applicant Information
+                </h4>
+            </div>
+            <div class="card-body">
+                <div class="row mb-3">
+                    <div class="col-md-6">
+                        <label class="text-muted small">Full Name</label>
+                        <p class="fw-bold">{{ appointment.applicant_name }}</p>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="text-muted small">Email Address</label>
+                        <p class="fw-bold">{{ appointment.email }}</p>
+                    </div>
+                </div>
+                <div class="row mb-3">
+                    <div class="col-md-6">
+                        <label class="text-muted small">Passport Number</label>
+                        <p class="fw-bold"><code>{{ appointment.passport_number }}</code></p>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="text-muted small">Phone Number</label>
+                        <p class="fw-bold">{{ appointment.phone_number or 'N/A' }}</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Appointment Schedule Card -->
+        <div class="card mb-4">
+            <div class="card-header bg-white">
+                <h4 class="mb-0">
+                    <i class="bi bi-calendar-check"></i> Appointment Schedule
+                </h4>
+            </div>
+            <div class="card-body">
+                <div class="row mb-3">
+                    <div class="col-md-6">
+                        <label class="text-muted small">Date</label>
+                        <p class="fw-bold fs-5">
+                            <i class="bi bi-calendar-event text-primary"></i> 
+                            {{ appointment.appointment_date }}
+                        </p>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="text-muted small">Time</label>
+                        <p class="fw-bold fs-5">
+                            <i class="bi bi-clock text-primary"></i> 
+                            {{ appointment.appointment_time }}
+                        </p>
+                    </div>
+                </div>
+                <div class="row">
+                    <div class="col-md-6">
+                        <label class="text-muted small">Status</label>
+                        <p>
+                            {% if appointment.status == 'confirmed' %}
+                            <span class="status-badge status-confirmed">
+                                <i class="bi bi-check-circle-fill"></i> Confirmed
+                            </span>
+                            {% elif appointment.status == 'pending' %}
+                            <span class="status-badge status-pending">
+                                <i class="bi bi-clock-fill"></i> Pending
+                            </span>
+                            {% else %}
+                            <span class="status-badge status-cancelled">
+                                <i class="bi bi-x-circle-fill"></i> Cancelled
+                            </span>
+                            {% endif %}
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Medical Exam Card -->
+        <div class="card mb-4">
+            <div class="card-header bg-white">
+                <h4 class="mb-0">
+                    <i class="bi bi-clipboard2-pulse"></i> Medical Examination
+                </h4>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <label class="text-muted small">Exam Date</label>
+                        <p class="fw-bold">{{ appointment.medical_exam_date }}</p>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="text-muted small">Verification Status</label>
+                        <p>
+                            {% if appointment.medical_exam_verified %}
+                            <span class="badge bg-success">
+                                <i class="bi bi-shield-check"></i> Verified
+                            </span>
+                            {% else %}
+                            <span class="badge bg-warning">
+                                <i class="bi bi-hourglass-split"></i> Pending Verification
+                            </span>
+                            {% endif %}
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Important Information -->
+        <div class="card border-primary mb-4">
+            <div class="card-header bg-primary text-white">
+                <h5 class="mb-0">
+                    <i class="bi bi-info-circle-fill"></i> Important Information
+                </h5>
+            </div>
+            <div class="card-body">
+                <ul class="mb-0">
+                    <li>Please arrive <strong>15 minutes early</strong> for your appointment.</li>
+                    <li>Bring your <strong>passport</strong>, this confirmation, and all required documents.</li>
+                    <li>Medical examination results must be brought to the interview.</li>
+                    <li>Mobile phones and electronic devices are not permitted inside the embassy.</li>
+                    <li>If you need to reschedule, please contact us at least 24 hours in advance.</li>
+                </ul>
+            </div>
+        </div>
+
+        <!-- Action Buttons -->
+        <div class="d-grid gap-2 d-md-flex justify-content-md-between mb-4">
+            <a href="/appointments" class="btn btn-outline-secondary">
+                <i class="bi bi-arrow-left"></i> View All Appointments
+            </a>
+            <div class="btn-group">
+                <button onclick="window.print()" class="btn btn-outline-primary">
+                    <i class="bi bi-printer"></i> Print Confirmation
+                </button>
+                <a href="/" class="btn btn-embassy">
+                    <i class="bi bi-house"></i> Home
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+@media print {
+    .navbar, footer, .btn-group, .alert-dismissible .btn-close {
+        display: none !important;
+    }
+    
+    .card {
+        border: 1px solid #000 !important;
+        box-shadow: none !important;
+    }
+}
+</style>
+{% endblock %}

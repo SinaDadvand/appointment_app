@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "embassy-appointments.fullname" . }}
+  labels:
+    {{- include "embassy-appointments.labels" . | nindent 4 }}
+data:
+  APP_NAME: {{ .Values.config.appName | quote }}
+  APP_VERSION: {{ .Chart.AppVersion | quote }}
+  ENVIRONMENT: {{ .Values.config.environment | quote }}
+  EMBASSY_NAME: {{ .Values.config.embassyName | quote }}
+  AVAILABLE_SLOTS_PER_DAY: {{ .Values.config.availableSlotsPerDay | quote }}
+  MEDICAL_EXAM_REQUIRED: {{ .Values.config.medicalExamRequired | quote }}
+  MEDICAL_EXAM_VALIDITY_DAYS: {{ .Values.config.medicalExamValidityDays | quote }}
+  WORKERS: {{ .Values.config.workers | quote }}
+  TIMEOUT: {{ .Values.config.timeout | quote }}
+  LOG_LEVEL: {{ .Values.config.logLevel | quote }}
+  PORT: "8080"
+  DEBUG: "false"
+  DATABASE_PATH: "/app/data/appointments.db"

@@ -1,0 +1,178 @@
+{% extends "base.html" %}
+
+{% block title %}Schedule Appointment - {{ embassy_name }}{% endblock %}
+
+{% block hero %}
+<div class="hero-section">
+    <div class="container">
+        <h1 class="display-5 fw-bold">
+            <i class="bi bi-calendar-check"></i> Visa Interview Appointment
+        </h1>
+        <p class="lead">Schedule your embassy visa interview appointment</p>
+    </div>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-lg-8">
+        {% if error %}
+        <div class="alert alert-danger alert-dismissible fade show" role="alert">
+            <i class="bi bi-exclamation-triangle-fill"></i> {{ error }}
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+        {% endif %}
+
+        <div class="card">
+            <div class="card-header bg-white">
+                <h4 class="mb-0">
+                    <i class="bi bi-person-lines-fill"></i> Appointment Information
+                </h4>
+            </div>
+            <div class="card-body">
+                <form method="POST" action="/appointments" id="appointmentForm">
+                    <!-- Personal Information -->
+                    <h5 class="mb-3 text-primary">
+                        <i class="bi bi-person-badge"></i> Personal Information
+                    </h5>
+                    
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label for="applicant_name" class="form-label">Full Name *</label>
+                            <input type="text" 
+                                   class="form-control" 
+                                   id="applicant_name" 
+                                   name="applicant_name" 
+                                   value="{{ form_data.applicant_name if form_data else '' }}"
+                                   required>
+                        </div>
+                        <div class="col-md-6">
+                            <label for="email" class="form-label">Email Address *</label>
+                            <input type="email" 
+                                   class="form-control" 
+                                   id="email" 
+                                   name="email" 
+                                   value="{{ form_data.email if form_data else '' }}"
+                                   required>
+                        </div>
+                    </div>
+
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label for="passport_number" class="form-label">Passport Number *</label>
+                            <input type="text" 
+                                   class="form-control" 
+                                   id="passport_number" 
+                                   name="passport_number" 
+                                   value="{{ form_data.passport_number if form_data else '' }}"
+                                   pattern="[A-Z0-9]{6,9}"
+                                   required>
+                            <small class="text-muted">6-9 alphanumeric characters</small>
+                        </div>
+                        <div class="col-md-6">
+                            <label for="phone_number" class="form-label">Phone Number</label>
+                            <input type="tel" 
+                                   class="form-control" 
+                                   id="phone_number" 
+                                   name="phone_number" 
+                                   value="{{ form_data.phone_number if form_data else '' }}"
+                                   placeholder="+1-555-0123">
+                        </div>
+                    </div>
+
+                    <hr class="my-4">
+
+                    <!-- Medical Exam Information -->
+                    {% if medical_required %}
+                    <h5 class="mb-3 text-primary">
+                        <i class="bi bi-clipboard2-pulse"></i> Medical Examination
+                    </h5>
+                    
+                    <div class="alert alert-info">
+                        <i class="bi bi-info-circle-fill"></i>
+                        <strong>Required:</strong> Medical examination must be completed within the last 180 days.
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="medical_exam_date" class="form-label">Medical Exam Date *</label>
+                        <input type="date" 
+                               class="form-control" 
+                               id="medical_exam_date" 
+                               name="medical_exam_date" 
+                               value="{{ form_data.medical_exam_date if form_data else '' }}"
+                               max="{{ today }}"
+                               required>
+                        <small class="text-muted">Date when medical examination was completed</small>
+                    </div>
+
+                    <hr class="my-4">
+                    {% endif %}
+
+                    <!-- Appointment Selection -->
+                    <h5 class="mb-3 text-primary">
+                        <i class="bi bi-calendar3"></i> Appointment Details
+                    </h5>
+
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label for="appointment_date" class="form-label">Preferred Date *</label>
+                            <input type="date" 
+                                   class="form-control" 
+                                   id="appointment_date" 
+                                   name="appointment_date" 
+                                   value="{{ form_data.appointment_date if form_data else '' }}"
+                                   min="{{ today }}"
+                                   required>
+                        </div>
+                        <div class="col-md-6">
+                            <label for="appointment_time" class="form-label">Preferred Time *</label>
+                            <select class="form-select" id="appointment_time" name="appointment_time" required>
+                                <option value="">Select a time...</option>
+                                <option value="09:00">09:00 AM</option>
+                                <option value="09:30">09:30 AM</option>
+                                <option value="10:00">10:00 AM</option>
+                                <option value="10:30">10:30 AM</option>
+                                <option value="11:00">11:00 AM</option>
+                                <option value="11:30">11:30 AM</option>
+                                <option value="13:00">01:00 PM</option>
+                                <option value="13:30">01:30 PM</option>
+                                <option value="14:00">02:00 PM</option>
+                                <option value="14:30">02:30 PM</option>
+                                <option value="15:00">03:00 PM</option>
+                                <option value="15:30">03:30 PM</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="alert alert-warning">
+                        <i class="bi bi-exclamation-circle"></i>
+                        <strong>Note:</strong> Appointments are subject to availability. 
+                        You will receive a confirmation email if your requested time is available.
+                    </div>
+
+                    <div class="d-grid gap-2 d-md-flex justify-content-md-end mt-4">
+                        <button type="reset" class="btn btn-secondary">
+                            <i class="bi bi-x-circle"></i> Clear Form
+                        </button>
+                        <button type="submit" class="btn btn-embassy">
+                            <i class="bi bi-check-circle"></i> Schedule Appointment
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // Set today's date for date inputs
+    document.addEventListener('DOMContentLoaded', function() {
+        const today = new Date().toISOString().split('T')[0];
+        document.getElementById('appointment_date').setAttribute('min', today);
+        
+        {% if medical_required %}
+        document.getElementById('medical_exam_date').setAttribute('max', today);
+        {% endif %}
+    });
+</script>
+{% endblock %}

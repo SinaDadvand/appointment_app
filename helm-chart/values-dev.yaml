@@ -1,0 +1,41 @@
+# Development environment overrides
+
+replicaCount: 1
+
+image:
+  tag: "latest"
+  pullPolicy: Never
+
+config:
+  environment: "development"
+  logLevel: "DEBUG"
+
+autoscaling:
+  enabled: false
+
+podDisruptionBudget:
+  enabled: false
+
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+  hosts:
+    - host: appointments.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+resources:
+  limits:
+    cpu: 200m
+    memory: 128Mi
+  requests:
+    cpu: 100m
+    memory: 64Mi
+
+persistence:
+  enabled: true
+  size: 500Mi
