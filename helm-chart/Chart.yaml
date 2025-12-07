@@ -1,10 +1,16 @@
-# Helm Chart for Embassy Appointment System
+# Helm Chart Metadata for Embassy Appointment System
+# This file defines the chart version, application version, and metadata
+# used by Helm for package management and deployment tracking
 
 apiVersion: v2
 name: embassy-appointments
 description: A Helm chart for the Embassy Visa Appointment Scheduling System
 type: application
+
+# Chart version - increment when making changes to the chart itself
 version: 1.0.0
+
+# Application version - the version of the application being deployed
 appVersion: "1.0.0"
 keywords:
   - embassy

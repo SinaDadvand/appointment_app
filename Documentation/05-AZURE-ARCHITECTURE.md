@@ -563,6 +563,253 @@ az aks enable-addons \
 
 ---
 
+## Deployment Steps
+
+### Prerequisites
+- Azure account with active subscription
+- Azure CLI installed (`az`)
+- kubectl installed
+- Helm 3 installed
+- Docker installed
+
+### Step 1: Create Resource Group
+```bash
+# Set variables
+RESOURCE_GROUP="embassy-appointments-rg"
+LOCATION="eastus"
+AKS_CLUSTER_NAME="embassy-aks"
+
+# Create resource group
+az group create --name $RESOURCE_GROUP --location $LOCATION
+```
+
+### Step 2: Create Azure Container Registry (ACR)
+```bash
+ACR_NAME="embassyappointmentsacr"  # Must be globally unique
+
+# Create ACR
+az acr create \
+  --resource-group $RESOURCE_GROUP \
+  --name $ACR_NAME \
+  --sku Standard \
+  --location $LOCATION
+
+# Enable admin access (for initial setup)
+az acr update --name $ACR_NAME --admin-enabled true
+```
+
+### Step 3: Build and Push Container Image
+```bash
+# Login to ACR
+az acr login --name $ACR_NAME
+
+# Build and push image
+docker build -t $ACR_NAME.azurecr.io/embassy-appointments:1.0.0 .
+docker push $ACR_NAME.azurecr.io/embassy-appointments:1.0.0
+```
+
+### Step 4: Create AKS Cluster
+```bash
+# Create AKS with ACR integration
+az aks create \
+  --resource-group $RESOURCE_GROUP \
+  --name $AKS_CLUSTER_NAME \
+  --node-count 3 \
+  --enable-managed-identity \
+  --attach-acr $ACR_NAME \
+  --network-plugin azure \
+  --enable-addons monitoring \
+  --zones 1 2 3 \
+  --node-vm-size Standard_D4s_v3 \
+  --enable-cluster-autoscaler \
+  --min-count 3 \
+  --max-count 10 \
+  --generate-ssh-keys
+
+# Get AKS credentials
+az aks get-credentials --resource-group $RESOURCE_GROUP --name $AKS_CLUSTER_NAME
+```
+
+### Step 5: Install NGINX Ingress Controller
+```bash
+# Add Helm repo
+helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
+helm repo update
+
+# Install ingress controller
+helm install ingress-nginx ingress-nginx/ingress-nginx \
+  --namespace ingress-nginx \
+  --create-namespace \
+  --set controller.service.annotations."service\.beta\.kubernetes\.io/azure-load-balancer-health-probe-request-path"=/healthz
+```
+
+### Step 6: Install Cert-Manager (for SSL/TLS)
+```bash
+# Install cert-manager
+helm repo add jetstack https://charts.jetstack.io
+helm repo update
+
+helm install cert-manager jetstack/cert-manager \
+  --namespace cert-manager \
+  --create-namespace \
+  --set installCRDs=true
+```
+
+### Step 7: Create Azure Key Vault for Secrets
+```bash
+KV_NAME="embassy-appointments-kv"
+
+# Create Key Vault
+az keyvault create \
+  --name $KV_NAME \
+  --resource-group $RESOURCE_GROUP \
+  --location $LOCATION
+
+# Store secrets
+az keyvault secret set --vault-name $KV_NAME --name "secret-key" --value "your-secret-key"
+az keyvault secret set --vault-name $KV_NAME --name "api-key" --value "your-api-key"
+
+# Grant AKS access to Key Vault
+AKS_IDENTITY=$(az aks show --name $AKS_CLUSTER_NAME --resource-group $RESOURCE_GROUP --query "identityProfile.kubeletidentity.clientId" -o tsv)
+az keyvault set-policy --name $KV_NAME --object-id $AKS_IDENTITY --secret-permissions get list
+```
+
+### Step 8: Deploy Application with Helm
+```bash
+# Update values-prod.yaml with ACR details
+cat > helm-chart/values-azure.yaml <<EOF
+replicaCount: 3
+
+image:
+  repository: $ACR_NAME.azurecr.io/embassy-appointments
+  tag: "1.0.0"
+  pullPolicy: IfNotPresent
+
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+  hosts:
+    - host: appointments.yourdomain.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: appointments-tls
+      hosts:
+        - appointments.yourdomain.com
+
+resources:
+  limits:
+    cpu: 1000m
+    memory: 1Gi
+  requests:
+    cpu: 500m
+    memory: 512Mi
+
+autoscaling:
+  enabled: true
+  minReplicas: 3
+  maxReplicas: 10
+
+persistence:
+  enabled: true
+  size: 10Gi
+  storageClass: managed-premium
+EOF
+
+# Deploy with Helm
+helm install appointments ./helm-chart \
+  -f helm-chart/values-azure.yaml \
+  -n embassy-appointments \
+  --create-namespace
+```
+
+### Step 9: Configure DNS
+```bash
+# Get ingress public IP
+INGRESS_IP=$(kubectl get service -n ingress-nginx ingress-nginx-controller -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+
+echo "Configure DNS A record:"
+echo "appointments.yourdomain.com -> $INGRESS_IP"
+```
+
+### Step 10: Verify Deployment
+```bash
+# Check pods
+kubectl get pods -n embassy-appointments
+
+# Check ingress
+kubectl get ingress -n embassy-appointments
+
+# Check certificate (wait 2-3 minutes)
+kubectl get certificate -n embassy-appointments
+
+# Test application
+curl https://appointments.yourdomain.com/health
+```
+
+---
+
+## User Access
+
+### Public Access (End Users)
+
+**URL**: `https://appointments.yourdomain.com`
+
+**How Users Access**:
+1. Navigate to the public domain in web browser
+2. Traffic hits Azure Front Door (if configured) or directly to Application Gateway
+3. Application Gateway routes to AKS Ingress Controller
+4. NGINX Ingress routes to application Service
+5. Service load-balances across healthy pods
+6. Pod serves the request
+
+**Security Flow**:
+```
+User Browser
+    ↓ (HTTPS)
+Azure Front Door (SSL/TLS termination, WAF)
+    ↓ (HTTPS)
+Application Gateway (Regional WAF, Load Balancing)
+    ↓ (HTTP - internal network)
+AKS Ingress Controller
+    ↓
+Application Pods
+```
+
+### Administrator Access
+
+**AKS Dashboard**:
+```bash
+# Start dashboard proxy
+kubectl proxy
+
+# Access at: http://localhost:8001/api/v1/namespaces/kubernetes-dashboard/services/https:kubernetes-dashboard:/proxy/
+```
+
+**Azure Portal**:
+- Navigate to Azure Portal → Kubernetes Services → [Your Cluster]
+- View metrics, logs, workloads, and configurations
+
+**Command Line**:
+```bash
+# Connect to cluster
+az aks get-credentials --resource-group $RESOURCE_GROUP --name $AKS_CLUSTER_NAME
+
+# View resources
+kubectl get all -n embassy-appointments
+
+# View logs
+kubectl logs -n embassy-appointments -l app.kubernetes.io/name=embassy-appointments --tail=100
+
+# Execute commands in pod
+kubectl exec -it <pod-name> -n embassy-appointments -- /bin/sh
+```
+
+---
+
 ## CI/CD Integration
 
 ### Azure DevOps Pipeline
@@ -610,5 +857,8 @@ This Azure architecture provides:
 ✅ **Cost-Effective**: ~$900-1,200/month with optimization opportunities  
 ✅ **Compliance-Ready**: Security controls, audit logs, encryption  
 ✅ **Production-Ready**: Automated deployments, disaster recovery, backups  
+
+**Public Access**: Users access via `https://appointments.yourdomain.com` through secure Azure networking  
+**Admin Access**: Managed through Azure Portal, kubectl CLI, and Kubernetes Dashboard  
 
 This architecture can handle thousands of concurrent users while maintaining security and compliance requirements for a government/embassy application.

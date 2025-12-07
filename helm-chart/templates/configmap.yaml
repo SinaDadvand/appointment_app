@@ -1,3 +1,6 @@
+# ConfigMap Resource
+# Stores non-sensitive configuration as environment variables
+# Contains application settings like environment, log level, and database path
 apiVersion: v1
 kind: ConfigMap
 metadata:

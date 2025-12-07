@@ -1,4 +1,7 @@
 {{- if .Values.autoscaling.enabled }}
+# Horizontal Pod Autoscaler
+# Automatically scales the number of pods based on CPU/memory utilization
+# Maintains application performance under varying load
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:

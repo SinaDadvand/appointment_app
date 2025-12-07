@@ -944,6 +944,87 @@ data:
   DATABASE_PASSWORD: {{ .Values.secrets.databasePassword | b64enc }}
 ```
 
+**How Secrets Are Used in Application**:
+
+1. **SECRET_KEY** - **Currently Used** ✅
+   
+   **Location**: `app.py`, line 16
+   ```python
+   app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'dev-secret-key-change-in-production')
+   ```
+   
+   **Purpose in Flask**:
+   - **Session encryption**: Encrypts session cookies to prevent tampering
+   - **CSRF protection**: Signs CSRF tokens for secure form submissions
+   - **Flash messages**: Secures flash message data between requests
+   - **Cryptographic signing**: Used by Flask extensions for secure data signing
+   
+   **Security Impact**: Critical for preventing session hijacking and cross-site request forgery attacks
+
+2. **DATABASE_PASSWORD** - **Currently NOT Used** ⚠️
+   
+   **Current Setup**: SQLite database (file-based, no authentication required)
+   
+   **Future Use Case** - When Upgrading to Production Database:
+   
+   **PostgreSQL Example**:
+   ```python
+   # app.py (future enhancement)
+   import psycopg2
+   
+   db_config = {
+       'host': os.getenv('DB_HOST', 'localhost'),
+       'database': os.getenv('DB_NAME', 'appointments'),
+       'user': os.getenv('DB_USER', 'postgres'),
+       'password': os.getenv('DATABASE_PASSWORD', ''),  # ← From Kubernetes Secret
+       'port': os.getenv('DB_PORT', '5432')
+   }
+   
+   conn = psycopg2.connect(**db_config)
+   ```
+   
+   **MySQL Example**:
+   ```python
+   # app.py (future enhancement)
+   import mysql.connector
+   
+   conn = mysql.connector.connect(
+       host=os.getenv('DB_HOST', 'localhost'),
+       database=os.getenv('DB_NAME', 'appointments'),
+       user=os.getenv('DB_USER', 'root'),
+       password=os.getenv('DATABASE_PASSWORD', ''),  # ← From Kubernetes Secret
+       port=int(os.getenv('DB_PORT', '3306'))
+   )
+   ```
+   
+   **Cloud Database Integration**:
+   - **Azure Database for PostgreSQL**: Uses DATABASE_PASSWORD for managed database authentication
+   - **GCP Cloud SQL**: Uses DATABASE_PASSWORD with Cloud SQL Proxy
+   - **AWS RDS**: Uses DATABASE_PASSWORD for RDS connection
+   
+   **Why Pre-configured**: Prepared for production migration from SQLite to enterprise database without code changes
+
+**Injection into Application** (`helm-chart/templates/deployment.yaml`):
+```yaml
+spec:
+  containers:
+  - name: app
+    envFrom:
+    - configMapRef:
+        name: app-config
+    - secretRef:
+        name: app-secrets  # ← All secrets automatically available as environment variables
+```
+
+**Secret Flow**:
+```
+values.yaml (secrets.secretKey) 
+  → secret.yaml (base64 encode) 
+  → Kubernetes Secret (encrypted in etcd) 
+  → Pod environment variables 
+  → os.getenv() in app.py
+```
+
 **Why Secret**:
 - Sensitive data
 - Base64 encoded
@@ -955,60 +1036,380 @@ data:
 **Options Supported**:
 
 1. **Plain Kubernetes Secrets** (Local/Dev):
-   - Built-in
-   - Simple
-   - Base64 encoding
+   - **What**: Built-in Kubernetes Secret resource with base64 encoding
+   - **When to Use**: Local development, testing, small deployments
+   - **Why**: Simple, no additional tools needed, works out-of-the-box
+   - **How**: 
+     ```bash
+     # Create secret from literal values
+     kubectl create secret generic app-secrets \
+       --from-literal=SECRET_KEY="my-secret-key-12345" \
+       --from-literal=DATABASE_PASSWORD="db-pass-67890" \
+       -n embassy-appointments
+     
+     # Or from file
+     kubectl create secret generic app-secrets \
+       --from-file=SECRET_KEY=./secret-key.txt \
+       -n embassy-appointments
+     ```
+   - **Limitations**: 
+     - Only base64 encoded (not encrypted in git)
+     - Secrets visible to anyone with kubectl access
+     - Not suitable for GitOps workflows (can't commit to git)
+   - **Best For**: Local KIND clusters, development environments
 
 2. **Sealed Secrets** (GitOps):
-   - Encrypted in git
-   - Safe to commit
-   - Cluster decrypts
+   - **What**: Bitnami Sealed Secrets - encrypts secrets so they can be safely stored in git
+   - **When to Use**: GitOps workflows (ArgoCD, Flux), when you want version-controlled secrets
+   - **Why**: Enables storing encrypted secrets in git repository safely
+   - **How**:
+     ```bash
+     # Install Sealed Secrets controller
+     kubectl apply -f https://github.com/bitnami-labs/sealed-secrets/releases/download/v0.24.0/controller.yaml
+     
+     # Install kubeseal CLI
+     # brew install kubeseal  (macOS)
+     # choco install kubeseal  (Windows)
+     
+     # Create a regular secret file
+     kubectl create secret generic app-secrets \
+       --from-literal=SECRET_KEY="my-secret-key-12345" \
+       --dry-run=client -o yaml > secret.yaml
+     
+     # Seal it (encrypt)
+     kubeseal -f secret.yaml -w sealed-secret.yaml
+     
+     # Now safe to commit sealed-secret.yaml to git
+     git add sealed-secret.yaml
+     git commit -m "Add encrypted secrets"
+     
+     # Apply to cluster - controller decrypts automatically
+     kubectl apply -f sealed-secret.yaml
+     ```
+   - **Benefits**:
+     - Safe to commit encrypted secrets to git
+     - Cluster-specific encryption (secrets only work on target cluster)
+     - Audit trail in git history
+     - Works with GitOps tools (ArgoCD, Flux)
+   - **Best For**: Teams using GitOps, need secret version control, multi-environment deployments
 
 3. **External Secrets Operator** (Production):
-   - Azure Key Vault
-   - AWS Secrets Manager
-   - GCP Secret Manager
-   - HashiCorp Vault
+   - **What**: Syncs secrets from external secret management systems into Kubernetes
+   - **When to Use**: Production environments, enterprise security requirements, compliance needs
+   - **Why**: 
+     - Centralized secret management across multiple clusters
+     - Secret rotation without redeploying applications
+     - Audit logging and access control
+     - Meets compliance requirements (SOC2, HIPAA, PCI-DSS)
+   - **Supported Backends**:
+     - **Azure Key Vault**: Microsoft Azure's secret management
+     - **AWS Secrets Manager**: Amazon's secret management
+     - **GCP Secret Manager**: Google Cloud's secret management
+     - **HashiCorp Vault**: Open-source, enterprise-grade secret management
+   - **How** (Azure Key Vault Example):
+     ```bash
+     # 1. Install External Secrets Operator
+     helm repo add external-secrets https://charts.external-secrets.io
+     helm install external-secrets external-secrets/external-secrets \
+       -n external-secrets-system --create-namespace
+     
+     # 2. Create Azure Key Vault (if not exists)
+     az keyvault create \
+       --name embassy-appointments-kv \
+       --resource-group embassy-appointments-rg \
+       --location eastus
+     
+     # 3. Store secrets in Key Vault
+     az keyvault secret set \
+       --vault-name embassy-appointments-kv \
+       --name app-secret-key \
+       --value "my-secret-key-12345"
+     
+     az keyvault secret set \
+       --vault-name embassy-appointments-kv \
+       --name db-password \
+       --value "secure-db-password"
+     
+     # 4. Create SecretStore (connects to Azure Key Vault)
+     kubectl apply -f - <<EOF
+     apiVersion: external-secrets.io/v1beta1
+     kind: SecretStore
+     metadata:
+       name: azure-keyvault
+       namespace: embassy-appointments
+     spec:
+       provider:
+         azurekv:
+           vaultUrl: "https://embassy-appointments-kv.vault.azure.net"
+           authType: WorkloadIdentity  # Or ServicePrincipal
+     EOF
+     
+     # 5. Create ExternalSecret (syncs from Key Vault)
+     kubectl apply -f - <<EOF
+     apiVersion: external-secrets.io/v1beta1
+     kind: ExternalSecret
+     metadata:
+       name: app-secrets
+       namespace: embassy-appointments
+     spec:
+       refreshInterval: 1h  # Sync every hour
+       secretStoreRef:
+         name: azure-keyvault
+         kind: SecretStore
+       target:
+         name: app-secrets  # Creates this Kubernetes Secret
+         creationPolicy: Owner
+       data:
+       - secretKey: SECRET_KEY  # Key in Kubernetes Secret
+         remoteRef:
+           key: app-secret-key  # Key in Azure Key Vault
+       - secretKey: DATABASE_PASSWORD
+         remoteRef:
+           key: db-password
+     EOF
+     
+     # 6. Operator automatically creates Kubernetes Secret
+     # Pods can now use it like any other secret
+     ```
+   - **Benefits**:
+     - **Centralized Management**: One place for all secrets across all clusters
+     - **Automatic Rotation**: Update in Key Vault, auto-syncs to Kubernetes
+     - **Fine-grained Access**: Cloud IAM controls who can access what
+     - **Audit Trail**: All secret access logged in cloud audit logs
+     - **Compliance**: Meets enterprise security requirements
+     - **Multi-cluster**: Same secrets across dev/staging/prod clusters
+   - **Best For**: Production environments, enterprises, regulated industries, multi-cluster deployments
 
-**Production Setup** (Azure example):
+**Production Setup** (Complete Azure Example):
 ```yaml
+# SecretStore - Connection to Azure Key Vault
+apiVersion: external-secrets.io/v1beta1
+kind: SecretStore
+metadata:
+  name: azure-keyvault
+  namespace: embassy-appointments
+spec:
+  provider:
+    azurekv:
+      vaultUrl: "https://embassy-appointments-kv.vault.azure.net"
+      authType: WorkloadIdentity
+      serviceAccountRef:
+        name: appointments-sa
+
+---
+# ExternalSecret - Defines which secrets to sync
 apiVersion: external-secrets.io/v1beta1
 kind: ExternalSecret
 metadata:
   name: app-secrets
+  namespace: embassy-appointments
 spec:
+  refreshInterval: 15m  # Check for updates every 15 minutes
   secretStoreRef:
     name: azure-keyvault
+    kind: SecretStore
+  target:
+    name: appointments-embassy-appointments-secret
+    creationPolicy: Owner
+    template:
+      engineVersion: v2
+      data:
+        # Map Key Vault secrets to Kubernetes Secret keys
+        SECRET_KEY: "{{ .secretkey }}"
+        DATABASE_PASSWORD: "{{ .dbpassword }}"
   data:
-  - secretKey: SECRET_KEY
+  - secretKey: secretkey
     remoteRef:
       key: app-secret-key
+      property: value
+  - secretKey: dbpassword
+    remoteRef:
+      key: app-database-password
+      property: value
 ```
+
+**Why Use External Secrets Operator**:
+- **Security**: Secrets never stored in git, only in secure vault
+- **Rotation**: Change secret in vault, automatically updated in pods (after refresh interval)
+- **Compliance**: Centralized audit logs, access control, encryption at rest
+- **Disaster Recovery**: Secrets backed up with cloud provider's backup system
+- **Multi-environment**: Same secret names, different values per environment
+- **Team Collaboration**: Developers don't need direct access to production secrets
 
 #### Configuration Injection
 
-**Environment Variables** (Recommended):
+**1. Environment Variables** (Recommended for application config):
+
 ```yaml
 spec:
   containers:
   - name: app
     envFrom:
     - configMapRef:
-        name: app-config
+        name: app-config      # All ConfigMap keys → environment variables
     - secretRef:
-        name: app-secrets
+        name: app-secrets     # All Secret keys → environment variables
 ```
 
-**Mounted Files** (For certificates):
+**Why Use This Method**:
+- **Simplicity**: All config available as `os.getenv()` in application
+- **12-Factor Compliance**: Standard way to configure cloud-native apps
+- **No Code Changes**: Works with any language/framework
+- **Kubernetes Native**: Standard practice, well-documented
+
+**When to Use**:
+- Application configuration (database connection strings, API endpoints)
+- Secret keys, passwords, API tokens
+- Any config that changes between environments
+- When application reads from environment variables
+
+**Example in Python**:
+```python
+# app.py - automatically has access to all ConfigMap and Secret values
+secret_key = os.getenv('SECRET_KEY')  # From Secret
+db_password = os.getenv('DATABASE_PASSWORD')  # From Secret
+embassy_name = os.getenv('EMBASSY_NAME')  # From ConfigMap
+log_level = os.getenv('LOG_LEVEL')  # From ConfigMap
+```
+
+---
+
+**2. Individual Environment Variables** (For selective injection):
+
 ```yaml
+spec:
+  containers:
+  - name: app
+    env:
+    - name: SECRET_KEY
+      valueFrom:
+        secretKeyRef:
+          name: app-secrets
+          key: SECRET_KEY
+    - name: EMBASSY_NAME
+      valueFrom:
+        configMapKeyRef:
+          name: app-config
+          key: EMBASSY_NAME
+```
+
+**Why Use This Method**:
+- **Selective**: Only inject specific values, not entire ConfigMap/Secret
+- **Rename**: Map different key names (e.g., `DB_PASS` → `DATABASE_PASSWORD`)
+- **Mix Sources**: Combine from multiple ConfigMaps/Secrets
+- **Explicit**: Clear which values come from where
+
+**When to Use**:
+- Need to rename environment variables
+- Only need a few values from large ConfigMap/Secret
+- Combining values from multiple sources
+- Want explicit control over what's injected
+
+---
+
+**3. Mounted Files** (For certificates, config files):
+
+```yaml
+spec:
+  containers:
+  - name: app
+    volumeMounts:
+    - name: secrets
+      mountPath: /etc/secrets  # Secrets mounted as files
+      readOnly: true
+    - name: config
+      mountPath: /etc/config   # ConfigMap mounted as files
+      readOnly: true
+  volumes:
+  - name: secrets
+    secret:
+      secretName: app-tls      # TLS certificates
+      items:
+      - key: tls.crt
+        path: tls.crt
+      - key: tls.key
+        path: tls.key
+        mode: 0400  # Read-only for owner
+  - name: config
+    configMap:
+      name: app-config-files
+      items:
+      - key: nginx.conf
+        path: nginx.conf
+```
+
+**Why Use This Method**:
+- **File-based Config**: Application expects config files (e.g., nginx.conf, database.yml)
+- **Certificates**: TLS/SSL certificates need to be files
+- **Binary Data**: Non-text data (images, compiled binaries)
+- **File Permissions**: Can set specific file permissions (mode: 0400)
+- **Multiple Files**: Single ConfigMap/Secret can contain multiple files
+
+**When to Use**:
+- TLS/SSL certificates for HTTPS
+- Application configuration files (YAML, JSON, TOML, INI)
+- SSH keys, CA certificates
+- Legacy applications that read from files
+- When you need specific file permissions
+
+**Example Use Cases**:
+```yaml
+# Example 1: TLS certificates for NGINX
 volumeMounts:
-- name: secrets
-  mountPath: /etc/secrets
+- name: tls-certs
+  mountPath: /etc/nginx/ssl
   readOnly: true
 volumes:
-- name: secrets
+- name: tls-certs
   secret:
-    secretName: app-tls
+    secretName: nginx-tls
+    # Creates: /etc/nginx/ssl/tls.crt and /etc/nginx/ssl/tls.key
+
+# Example 2: Application config file
+volumeMounts:
+- name: app-config
+  mountPath: /app/config
+  readOnly: true
+volumes:
+- name: app-config
+  configMap:
+    name: app-yaml-config
+    # Creates: /app/config/application.yml
+
+# Example 3: Database CA certificate
+volumeMounts:
+- name: db-certs
+  mountPath: /etc/ssl/certs
+  readOnly: true
+volumes:
+- name: db-certs
+  secret:
+    secretName: postgres-ca
+    items:
+    - key: ca.crt
+      path: ca.crt
+      mode: 0444  # World-readable
+```
+
+**File vs Environment Variable - Decision Guide**:
+
+| Use Environment Variables When | Use Mounted Files When |
+|-------------------------------|------------------------|
+| Simple key-value pairs | Certificates (TLS, SSH, CA) |
+| Database passwords | Multi-line configuration files |
+| API keys, tokens | Binary data |
+| Application expects env vars | Application expects files |
+| Config changes rarely | Need file permissions control |
+| Values are short strings | Values are large/complex |
+
+**Example in Application**:
+```python
+# Reading from environment variable
+secret_key = os.getenv('SECRET_KEY')
+
+# Reading from mounted file
+with open('/etc/secrets/tls.key', 'r') as f:
+    tls_key = f.read()
 ```
 
 #### Environment-Specific Values

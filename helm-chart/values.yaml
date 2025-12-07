@@ -1,12 +1,15 @@
-# Default values for embassy-appointments Helm chart
+# Default Configuration Values for Embassy Appointment System
+# These values provide sensible defaults for production deployments
+# Override with values-dev.yaml or values-prod.yaml for environment-specific settings
 
-# Number of replicas
+# Number of pod replicas for high availability
 replicaCount: 3
 
+# Container image configuration
 image:
-  repository: embassy-appointments
-  pullPolicy: IfNotPresent
-  tag: "latest"
+  repository: embassy-appointments  # Image name (without registry)
+  pullPolicy: IfNotPresent         # Pull image if not present locally
+  tag: "latest"                     # Image tag/version
 
 # Image pull secrets (if using private registry)
 imagePullSecrets: []

@@ -1,4 +1,7 @@
 {{- if .Values.ingress.enabled -}}
+# Ingress Resource
+# Defines HTTP/HTTPS routing rules for external access to the application
+# Routes requests from appointments.local (dev) or public domain (prod) to the service
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:

@@ -1,4 +1,7 @@
 {{- if .Values.serviceMonitor.enabled }}
+# ServiceMonitor (Prometheus Operator)
+# Configures Prometheus to scrape metrics from the application
+# Enables monitoring of application performance and health
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:

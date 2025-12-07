@@ -1,4 +1,7 @@
 {{- if .Values.persistence.enabled }}
+# Persistent Volume Claim
+# Requests storage for the SQLite database
+# Persists appointment data across pod restarts and redeployments
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:

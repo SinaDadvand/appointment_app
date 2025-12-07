@@ -1,4 +1,7 @@
 {{- if .Values.networkPolicy.enabled }}
+# Network Policy
+# Implements network segmentation and zero-trust security
+# Controls which pods can communicate with the application
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:

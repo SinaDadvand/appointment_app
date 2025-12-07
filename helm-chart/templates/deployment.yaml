@@ -1,3 +1,6 @@
+# Deployment Resource
+# Manages the embassy-appointments application pods
+# Handles rolling updates, health checks, and persistent storage mounting
 apiVersion: apps/v1
 kind: Deployment
 metadata:

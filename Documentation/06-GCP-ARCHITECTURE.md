@@ -698,6 +698,306 @@ gcloud compute ssl-certificates create appointments-ssl \
 
 ---
 
+## Deployment Steps
+
+### Prerequisites
+- Google Cloud account with billing enabled
+- `gcloud` CLI installed
+- `kubectl` installed
+- `helm` installed
+- Docker installed
+
+### Step 1: Set Up GCP Project
+```bash
+# Set variables
+PROJECT_ID="embassy-appointments-prod"
+REGION="us-central1"
+CLUSTER_NAME="embassy-appointments-gke"
+
+# Create project
+gcloud projects create $PROJECT_ID
+gcloud config set project $PROJECT_ID
+
+# Enable required APIs
+gcloud services enable container.googleapis.com \
+  artifactregistry.googleapis.com \
+  secretmanager.googleapis.com \
+  sqladmin.googleapis.com \
+  cloudresourcemanager.googleapis.com
+```
+
+### Step 2: Create Artifact Registry
+```bash
+# Create repository
+gcloud artifacts repositories create embassy-appointments \
+  --repository-format=docker \
+  --location=$REGION \
+  --description="Embassy appointments container registry"
+
+# Configure Docker authentication
+gcloud auth configure-docker ${REGION}-docker.pkg.dev
+```
+
+### Step 3: Build and Push Container Image
+```bash
+# Build image
+docker build -t ${REGION}-docker.pkg.dev/${PROJECT_ID}/embassy-appointments/app:1.0.0 .
+
+# Push to Artifact Registry
+docker push ${REGION}-docker.pkg.dev/${PROJECT_ID}/embassy-appointments/app:1.0.0
+```
+
+### Step 4: Create GKE Autopilot Cluster
+```bash
+# Create Autopilot cluster (recommended)
+gcloud container clusters create-auto $CLUSTER_NAME \
+  --region=$REGION \
+  --release-channel=regular
+
+# Or create Standard cluster (more control)
+gcloud container clusters create $CLUSTER_NAME \
+  --region=$REGION \
+  --num-nodes=1 \
+  --machine-type=e2-standard-4 \
+  --enable-autoscaling \
+  --min-nodes=3 \
+  --max-nodes=10 \
+  --enable-autorepair \
+  --enable-autoupgrade \
+  --workload-pool=${PROJECT_ID}.svc.id.goog
+
+# Get cluster credentials
+gcloud container clusters get-credentials $CLUSTER_NAME --region=$REGION
+```
+
+### Step 5: Install NGINX Ingress Controller
+```bash
+# Add Helm repo
+helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
+helm repo update
+
+# Install
+helm install ingress-nginx ingress-nginx/ingress-nginx \
+  --namespace ingress-nginx \
+  --create-namespace \
+  --set controller.service.type=LoadBalancer
+```
+
+### Step 6: Create Secrets in Secret Manager
+```bash
+# Create secrets
+echo -n "your-secret-key" | gcloud secrets create app-secret-key --data-file=-
+echo -n "your-api-key" | gcloud secrets create app-api-key --data-file=-
+
+# Grant GKE access using Workload Identity
+kubectl create serviceaccount appointments-sa -n embassy-appointments
+
+gcloud iam service-accounts add-iam-policy-binding \
+  appointments-sa@${PROJECT_ID}.iam.gserviceaccount.com \
+  --role roles/iam.workloadIdentityUser \
+  --member "serviceAccount:${PROJECT_ID}.svc.id.goog[embassy-appointments/appointments-sa]"
+
+gcloud secrets add-iam-policy-binding app-secret-key \
+  --member="serviceAccount:appointments-sa@${PROJECT_ID}.iam.gserviceaccount.com" \
+  --role="roles/secretmanager.secretAccessor"
+```
+
+### Step 7: Deploy Application with Helm
+```bash
+# Create values file for GCP
+cat > helm-chart/values-gcp.yaml <<EOF
+replicaCount: 3
+
+image:
+  repository: ${REGION}-docker.pkg.dev/${PROJECT_ID}/embassy-appointments/app
+  tag: "1.0.0"
+  pullPolicy: IfNotPresent
+
+serviceAccount:
+  create: true
+  name: appointments-sa
+  annotations:
+    iam.gke.io/gcp-service-account: appointments-sa@${PROJECT_ID}.iam.gserviceaccount.com
+
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+  hosts:
+    - host: appointments.yourdomain.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: appointments-tls
+      hosts:
+        - appointments.yourdomain.com
+
+resources:
+  requests:
+    cpu: 500m
+    memory: 512Mi
+  limits:
+    cpu: 1000m
+    memory: 1Gi
+
+autoscaling:
+  enabled: true
+  minReplicas: 3
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+
+persistence:
+  enabled: true
+  size: 10Gi
+  storageClass: standard-rwo
+EOF
+
+# Deploy
+helm install appointments ./helm-chart \
+  -f helm-chart/values-gcp.yaml \
+  -n embassy-appointments \
+  --create-namespace
+```
+
+### Step 8: Configure DNS
+```bash
+# Get Load Balancer IP
+INGRESS_IP=$(kubectl get service -n ingress-nginx ingress-nginx-controller \
+  -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+
+echo "Configure DNS A record:"
+echo "appointments.yourdomain.com -> $INGRESS_IP"
+
+# Or use Cloud DNS
+gcloud dns record-sets create appointments.yourdomain.com. \
+  --rrdatas=$INGRESS_IP \
+  --type=A \
+  --ttl=300 \
+  --zone=your-dns-zone
+```
+
+### Step 9: Install Cert-Manager for SSL
+```bash
+helm repo add jetstack https://charts.jetstack.io
+helm repo update
+
+helm install cert-manager jetstack/cert-manager \
+  --namespace cert-manager \
+  --create-namespace \
+  --set installCRDs=true
+
+# Create ClusterIssuer
+kubectl apply -f - <<EOF
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-prod
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    email: admin@yourdomain.com
+    privateKeySecretRef:
+      name: letsencrypt-prod
+    solvers:
+    - http01:
+        ingress:
+          class: nginx
+EOF
+```
+
+### Step 10: Verify Deployment
+```bash
+# Check pods
+kubectl get pods -n embassy-appointments
+
+# Check ingress and certificate
+kubectl get ingress,certificate -n embassy-appointments
+
+# Test application
+curl https://appointments.yourdomain.com/health
+```
+
+---
+
+## User Access
+
+### Public Access (End Users)
+
+**URL**: `https://appointments.yourdomain.com`
+
+**Access Flow**:
+1. User navigates to domain in web browser
+2. DNS resolves to Global Load Balancer IP (or regional NGINX Ingress IP)
+3. Traffic passes through Cloud Armor (WAF rules, DDoS protection)
+4. Load Balancer terminates SSL/TLS
+5. Routes to GKE Ingress Controller based on URL rules
+6. Ingress forwards to Kubernetes Service
+7. Service load-balances across healthy application pods
+8. Pod processes request and returns response
+
+**Security Layers**:
+```
+User Browser (HTTPS)
+    ↓
+Cloud CDN (caching, acceleration)
+    ↓
+Cloud Armor (WAF, DDoS protection)
+    ↓
+Global/Regional Load Balancer (SSL termination)
+    ↓ (HTTP - encrypted internal network)
+GKE Ingress Controller
+    ↓
+Kubernetes Service (ClusterIP)
+    ↓
+Application Pods (3-10 replicas)
+```
+
+### Administrator Access
+
+**GKE via Cloud Console**:
+1. Navigate to Google Cloud Console → Kubernetes Engine → Clusters
+2. Click cluster name → Workloads / Services & Ingress / Storage
+3. View logs, metrics, and resource details
+4. Use Cloud Shell for kubectl commands
+
+**Command Line Access**:
+```bash
+# Authenticate
+gcloud auth login
+
+# Connect to cluster
+gcloud container clusters get-credentials $CLUSTER_NAME --region=$REGION
+
+# View resources
+kubectl get all -n embassy-appointments
+
+# View logs
+kubectl logs -n embassy-appointments -l app.kubernetes.io/name=embassy-appointments --tail=100
+
+# Execute commands in pod
+kubectl exec -it <pod-name> -n embassy-appointments -- /bin/sh
+
+# Port forward for local testing
+kubectl port-forward -n embassy-appointments svc/appointments-embassy-appointments 8080:80
+```
+
+**Cloud Logging**:
+```bash
+# View application logs in Cloud Logging
+gcloud logging read "resource.type=k8s_container AND resource.labels.namespace_name=embassy-appointments" \
+  --limit=50 \
+  --format=json
+```
+
+**Cloud Monitoring Dashboard**:
+- Navigate to Cloud Console → Monitoring → Dashboards
+- View GKE cluster metrics, pod health, request rates
+- Set up alerts for CPU, memory, error rates
+
+---
+
 ## CI/CD with Cloud Build
 
 ### cloudbuild.yaml Example
@@ -726,7 +1026,7 @@ steps:
       - 'appointments'
       - './helm-chart'
       - '-f'
-      - 'helm-chart/values-prod.yaml'
+      - 'helm-chart/values-gcp.yaml'
       - '--set'
       - 'image.tag=$SHORT_SHA'
       - '-n'
@@ -752,6 +1052,9 @@ This GCP architecture provides:
 ✅ **Cost-Effective**: ~$655-1,045/month with Autopilot (even lower with discounts)  
 ✅ **Compliance-Ready**: Security Command Center, audit logs, encryption  
 ✅ **Serverless Operations**: Autopilot eliminates node management  
+
+**Public Access**: Users access via `https://appointments.yourdomain.com` through Cloud Load Balancing and Cloud Armor  
+**Admin Access**: Managed through Cloud Console, `gcloud` CLI, and `kubectl`  
 
 ### GCP vs Azure Comparison
 

@@ -1,8 +1,49 @@
-# Troubleshooting NGINX Ingress Controller in KIND
+# Troubleshooting Guide - Embassy Appointment System
 
-## Issue Summary
+This document covers common issues encountered during deployment and their solutions.
 
-When deploying the Embassy Appointment System to a KIND (Kubernetes in Docker) cluster, the application was inaccessible via `http://appointments.local` in the browser, returning an `ERR_EMPTY_RESPONSE` error.
+---
+
+## Issue 1: Image Tag Mismatch
+
+### Problem
+Pods failed to start with `ImagePullBackOff` error showing:
+```
+Failed to pull image "embassy-appointments:dev": failed to pull and unpack image 
+"docker.io/library/embassy-appointments:dev": pull access denied, repository does not exist
+```
+
+### Root Cause
+The `values-dev.yaml` was configured to use image tag `:dev`, but the Docker image was built and loaded into KIND with tag `:latest`.
+
+**Configuration mismatch**:
+- Built image: `embassy-appointments:latest`
+- Loaded to KIND: `embassy-appointments:latest`
+- Helm chart requested: `embassy-appointments:dev`
+
+### Solution
+Update `helm-chart/values-dev.yaml` to match the loaded image tag:
+
+```yaml
+image:
+  tag: "latest"
+  pullPolicy: Never
+```
+
+**Why `pullPolicy: Never`**: In KIND, images are pre-loaded into nodes. Setting `pullPolicy: Never` ensures Kubernetes uses the local image and doesn't attempt to pull from Docker Hub.
+
+### Prevention
+Always ensure consistency between:
+1. Docker build tag: `docker build -t embassy-appointments:latest`
+2. KIND load command: `kind load docker-image embassy-appointments:latest`
+3. Helm values: `tag: "latest"`
+
+---
+
+## Issue 2: NGINX Ingress Controller - ERR_EMPTY_RESPONSE
+
+### Problem
+Application was inaccessible via `http://appointments.local` in the browser, returning an `ERR_EMPTY_RESPONSE` error.
 
 **Symptoms**:
 - Browser showed: "This page isn't working right now - ERR_EMPTY_RESPONSE"
@@ -11,13 +52,11 @@ When deploying the Embassy Appointment System to a KIND (Kubernetes in Docker) c
 - Ingress resource was created correctly
 - NGINX Ingress Controller pods were running
 
----
+### Root Cause
 
-## Root Cause
+The NGINX Ingress Controller pod was scheduled on a worker node instead of the control-plane node, which has the required port mappings.
 
-The NGINX Ingress Controller pod was scheduled on a **worker node** (`embassy-appointments-worker2`) instead of the **control-plane node**. 
-
-### Why This Matters in KIND
+**Why This Matters in KIND**:
 
 KIND clusters use Docker containers as Kubernetes nodes. The port mappings that allow traffic from your host machine (localhost:80) to reach the cluster are configured **only on the control-plane node** in the `kind-config.yaml`:
 

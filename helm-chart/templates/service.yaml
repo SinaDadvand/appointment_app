@@ -1,3 +1,6 @@
+# Service Resource
+# Provides a stable internal endpoint for accessing the application pods
+# ClusterIP type - only accessible within the cluster (Ingress handles external access)
 apiVersion: v1
 kind: Service
 metadata:

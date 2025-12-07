@@ -1,4 +1,7 @@
 {{- if .Values.podDisruptionBudget.enabled }}
+# Pod Disruption Budget
+# Ensures minimum number of pods remain available during voluntary disruptions
+# Prevents service outages during rolling updates or node maintenance
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:

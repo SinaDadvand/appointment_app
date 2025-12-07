@@ -1,14 +1,16 @@
-# Production environment overrides
+# Production Environment Configuration
+# This file contains settings optimized for production cloud deployments
+# Higher replica count, proper registry, and strict resource limits
 
-replicaCount: 5
+replicaCount: 5  # Multiple replicas for high availability
 
 image:
-  repository: your-registry.azurecr.io/embassy-appointments
-  tag: "1.0.0"
-  pullPolicy: IfNotPresent
+  repository: your-registry.azurecr.io/embassy-appointments  # Replace with your registry
+  tag: "1.0.0"          # Use specific version tags (not 'latest')
+  pullPolicy: IfNotPresent  # Pull only if not cached
 
 imagePullSecrets:
-  - name: acr-secret
+  - name: acr-secret    # Secret for accessing private container registry
 
 config:
   environment: "production"
