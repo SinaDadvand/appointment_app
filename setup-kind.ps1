@@ -88,10 +88,12 @@ Write-Host "`n✅ Setup complete!" -ForegroundColor Green
 Write-Host ""
 Write-Host "Next steps:" -ForegroundColor Cyan
 Write-Host "1. Deploy the application:"
-Write-Host "   helm install appointments ./helm-chart -f helm-chart/values-dev.yaml -n embassy-appointments --create-namespace" -ForegroundColor White
+helm install appointments ./helm-chart -f helm-chart/values-dev.yaml -n embassy-appointments --create-namespace 
+
 Write-Host ""
 Write-Host "2. Wait for pods to be ready (30-60 seconds):"
-Write-Host "   kubectl get pods -n embassy-appointments -w" -ForegroundColor White
+kubectl get pods -n embassy-appointments -w
+
 Write-Host ""
 Write-Host "3. Access the application:"
 Write-Host "   http://appointments.local" -ForegroundColor White
