@@ -2,7 +2,7 @@
 # This file contains settings optimized for local development with KIND
 # Lower resource limits, single replica, and local image usage
 
-replicaCount: 1  # Single pod for development (not HA)
+replicaCount: 2  # Single pod for development (not HA)
 
 image:
   tag: "latest"
